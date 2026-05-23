@@ -1,6 +1,6 @@
 # Just Divide - Kid Mode
 
-A responsive ReactJS implementation of the "Just Divide - Kid Mode" game built inside the `JustDivideKidMode` folder.
+A responsive ReactJS implementation of the "Just Divide - Kid Mode".
 
 ## What is included
 
