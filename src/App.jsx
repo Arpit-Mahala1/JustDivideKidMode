@@ -301,7 +301,7 @@ export default function App() {
           <div className="title-block">
             <p className="eyebrow">JUST DIVIDE</p>
             <h1>Split and match tiles by division.</h1>
-            <p className="subtitle">Solve the 4 × 4 grid using the active tile, KEEP, or TRASH.</p>
+            <p className="subtitle">Solve rows and columns by dividing numbers to keep the board alive.</p>
           </div>
           <div className="timer-badge">
             <span>SESSION TIMER</span>
