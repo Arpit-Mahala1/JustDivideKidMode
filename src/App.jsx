@@ -8,7 +8,15 @@ const DIFFICULTY = {
   3: { label: 'Hard', trash: 3 }
 };
 
-const randomTile = () => TILE_VALUES[Math.floor(Math.random() * TILE_VALUES.length)];
+const randomTile = (difficulty = 1) => {
+  // Pools tuned per difficulty: include larger numbers and primes to increase challenge
+  const easy = [2,3,4,5,6,7,8,9,10,12,14,15,16,18,20,21];
+  const medium = [2,3,4,5,6,7,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45,46,48,49,50];
+  const hard = [2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,54,55,56,57,58,60,63,64,66,68,70,72,75,77,80,84,88,90,96,100];
+  if (difficulty <= 1) return easy[Math.floor(Math.random() * easy.length)];
+  if (difficulty === 2) return medium[Math.floor(Math.random() * medium.length)];
+  return hard[Math.floor(Math.random() * hard.length)];
+};
 const emptyGrid = () => Array(16).fill(0);
 const getNeighbors = (index) => {
   const row = Math.floor(index / 4);
@@ -80,29 +88,39 @@ const resolvePlacement = (grid, index) => {
   return { grid: nextGrid, scoreDelta };
 };
 
-const buildQueue = () => [randomTile(), randomTile(), randomTile()];
+const buildQueue = (difficulty = 1) => [randomTile(difficulty), randomTile(difficulty), randomTile(difficulty)];
 
 export default function App() {
   const [grid, setGrid] = useState(emptyGrid());
-  const [queue, setQueue] = useState(buildQueue());
+  const [difficulty, setDifficulty] = useState(1);
+  const [queue, setQueue] = useState(buildQueue(1));
   const [keepValue, setKeepValue] = useState(0);
   const [score, setScore] = useState(0);
-  const [difficulty] = useState(1);
   const [trashUsed, setTrashUsed] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [dragState, setDragState] = useState({ active: false, value: null, x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const [history, setHistory] = useState([]);
+  const [showHints, setShowHints] = useState(false);
 
   const keepRef = useRef(null);
   const trashRef = useRef(null);
   const gridRefs = useRef([]);
 
-  const level = Math.floor(score / 10) + 1;
+  const level = Math.floor(score / 20) + 1;
   const trashCount = DIFFICULTY[difficulty].trash + level - 1 - trashUsed;
 
   useEffect(() => {
     if (gameOver) return;
-    const interval = setInterval(() => setSeconds((seconds) => seconds + 1), 1000);
+    const interval = setInterval(() => {
+      setSeconds((seconds) => {
+        const next = seconds + 1;
+        if (next >= 300) {
+          setGameOver(true);
+        }
+        return next;
+      });
+    }, 1000);
     return () => clearInterval(interval);
   }, [gameOver]);
 
@@ -116,14 +134,17 @@ export default function App() {
     return true;
   };
 
-  const resetGame = () => {
+  const resetGame = (levelParam) => {
+    const level = typeof levelParam === 'number' ? levelParam : difficulty;
+    setDifficulty(level);
     setGrid(emptyGrid());
-    setQueue(buildQueue());
+    setQueue(buildQueue(level));
     setKeepValue(0);
     setScore(0);
     setTrashUsed(0);
     setGameOver(false);
     setSeconds(0);
+    setHistory([]);
   };
 
   const setGridRef = (element, index) => {
@@ -158,30 +179,47 @@ export default function App() {
 
   const placeTile = (index) => {
     if (gameOver || grid[index] !== 0) return;
+    // save snapshot for undo (limit 20)
+    setHistory((h) => [...h.slice(-19), { grid, queue, keepValue, score, trashUsed, seconds }]);
     const nextGrid = [...grid];
     nextGrid[index] = queue[0];
     const outcome = resolvePlacement(nextGrid, index);
     setGrid(outcome.grid);
     setScore((value) => value + outcome.scoreDelta);
-    setQueue((prev) => [prev[1], prev[2], randomTile()]);
+    setQueue((prev) => [prev[1], prev[2], randomTile(difficulty)]);
     setGameOver(checkGameOver(outcome.grid));
   };
 
   const trashAction = () => {
     if (gameOver || trashCount <= 0) return;
+    setHistory((h) => [...h.slice(-19), { grid, queue, keepValue, score, trashUsed, seconds }]);
     setTrashUsed((value) => value + 1);
-    setQueue((prev) => [prev[1], prev[2], randomTile()]);
+    setQueue((prev) => [prev[1], prev[2], randomTile(difficulty)]);
   };
 
   const keepAction = () => {
     if (gameOver) return;
+    setHistory((h) => [...h.slice(-19), { grid, queue, keepValue, score, trashUsed, seconds }]);
     if (keepValue === 0) {
       setKeepValue(queue[0]);
-      setQueue((prev) => [prev[1], prev[2], randomTile()]);
+      setQueue((prev) => [prev[1], prev[2], randomTile(difficulty)]);
       return;
     }
     setQueue((prev) => [keepValue, prev[1], prev[2]]);
     setKeepValue(queue[0]);
+  };
+
+  const undoAction = () => {
+    if (history.length === 0) return;
+    const last = history[history.length - 1];
+    setHistory((h) => h.slice(0, -1));
+    setGrid(last.grid);
+    setQueue(last.queue);
+    setKeepValue(last.keepValue);
+    setScore(last.score);
+    setTrashUsed(last.trashUsed);
+    setSeconds(last.seconds);
+    setGameOver(checkGameOver(last.grid));
   };
 
   const handlePointerDown = (event) => {
@@ -222,6 +260,27 @@ export default function App() {
       window.removeEventListener('pointerup', handleUp);
     };
   }, [dragState.active, dropAt]);
+
+  // Keyboard shortcuts: Z=Undo, R=Restart, 1/2/3 difficulty, G toggle hints
+  useEffect(() => {
+    const handleKey = (e) => {
+      // ignore if typing in an input
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z') undoAction();
+      if (key === 'r') resetGame();
+      if (key === 'g') setShowHints((s) => !s);
+      if (['1', '2', '3'].includes(key)) {
+        const level = Number(key);
+        // apply immediately with the selected difficulty
+        resetGame(level);
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [history, grid, queue, keepValue, score, trashUsed, seconds]);
 
   const formatTime = (value) => {
     const minutes = Math.floor(value / 60).toString().padStart(2, '0');
@@ -317,6 +376,35 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {showHints && (
+          <div className="hints-overlay">
+            <div className="hints-card">
+              <h3>Keyboard Shortcuts</h3>
+              <ul>
+                <li><strong>Z</strong> — Undo</li>
+                <li><strong>R</strong> — Restart</li>
+                <li><strong>1</strong>, <strong>2</strong>, <strong>3</strong> — Difficulty (Easy / Medium / Hard)</li>
+                <li><strong>G</strong> — Toggle hints</li>
+              </ul>
+              <button className="close-hints" onClick={() => setShowHints(false)}>Close</button>
+            </div>
+          </div>
+        )}
+
+        {gameOver && (
+          <div className="game-over-overlay">
+            <div className="game-over-card">
+              <h3>{seconds >= 300 ? 'Time is up!' : 'No moves left'}</h3>
+              <p className="game-over-copy">Your final score is <strong>{score}</strong> and you reached level <strong>{level}</strong>.</p>
+              <div className="game-over-actions">
+                <button className="action-button" onClick={() => resetGame(difficulty)}>Play Again</button>
+                <button className="action-button secondary" onClick={() => setShowHints(true)}>View Controls</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
