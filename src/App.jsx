@@ -96,6 +96,7 @@ export default function App() {
   const [queue, setQueue] = useState(buildQueue(1));
   const [keepValue, setKeepValue] = useState(0);
   const [score, setScore] = useState(0);
+  const [bestScore, setBestScore] = useState(0);
   const [trashUsed, setTrashUsed] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -125,6 +126,30 @@ export default function App() {
     }, 1000);
     return () => clearInterval(interval);
   }, [gameOver, paused]);
+
+  // load best score from localStorage once
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('jd_bestScore');
+      const parsed = parseInt(raw || '0', 10);
+      if (!Number.isNaN(parsed)) setBestScore(parsed);
+    } catch (err) {
+      // ignore (e.g., non-browser env)
+    }
+  }, []);
+
+  // when game ends, persist best score if current is higher
+  useEffect(() => {
+    if (!gameOver) return;
+    try {
+      if (score > bestScore) {
+        setBestScore(score);
+        localStorage.setItem('jd_bestScore', String(score));
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [gameOver, score, bestScore]);
 
   const checkGameOver = (nextGrid) => {
     if (nextGrid.some((value) => value === 0)) return false;
@@ -227,13 +252,27 @@ export default function App() {
 
   const handlePointerDown = (event) => {
     if (gameOver || queue[0] === 0) return;
+    const isTouch = event.type && event.type.startsWith('touch');
+    let clientX = event.clientX;
+    let clientY = event.clientY;
     const rect = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.setPointerCapture(event.pointerId);
+
+    if (isTouch) {
+      // touch-action:none on the tile prevents scrolling; avoid preventDefault here
+      const t = (event.touches && event.touches[0]) || (event.changedTouches && event.changedTouches[0]);
+      if (t) {
+        clientX = t.clientX;
+        clientY = t.clientY;
+      }
+    } else {
+      if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
     setDragState({
       active: true,
       value: queue[0],
-      x: event.clientX - rect.width / 2,
-      y: event.clientY - rect.height / 2,
+      x: clientX - rect.width / 2,
+      y: clientY - rect.height / 2,
       offsetX: rect.width / 2,
       offsetY: rect.height / 2
     });
@@ -248,24 +287,48 @@ export default function App() {
     if (!dragState.active) return undefined;
 
     const handleMove = (event) => {
+      let clientX = event.clientX;
+      let clientY = event.clientY;
+      if (event.type === 'touchmove') {
+        const t = event.touches && event.touches[0];
+        if (t) {
+          clientX = t.clientX;
+          clientY = t.clientY;
+        }
+      }
       setDragState((prev) => ({
         ...prev,
-        x: event.clientX - prev.offsetX,
-        y: event.clientY - prev.offsetY
+        x: clientX - prev.offsetX,
+        y: clientY - prev.offsetY
       }));
     };
 
     const handleUp = (event) => {
-      dropAt(event.clientX, event.clientY);
+      let clientX = event.clientX;
+      let clientY = event.clientY;
+      if (event.type === 'touchend' || event.type === 'touchcancel') {
+        const t = event.changedTouches && event.changedTouches[0];
+        if (t) {
+          clientX = t.clientX;
+          clientY = t.clientY;
+        }
+      }
+      dropAt(clientX, clientY);
       setDragState({ active: false, value: null, x: 0, y: 0, offsetX: 0, offsetY: 0 });
     };
 
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleUp);
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('touchend', handleUp);
+    window.addEventListener('touchcancel', handleUp);
 
     return () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
+      window.removeEventListener('touchcancel', handleUp);
     };
   }, [dragState.active, dropAt]);
 
@@ -384,6 +447,7 @@ export default function App() {
                     <div
                       className={tileClass(value)}
                       onPointerDown={index === 0 ? handlePointerDown : undefined}
+                      onTouchStart={index === 0 ? handlePointerDown : undefined}
                     >
                       {value}
                     </div>
@@ -427,7 +491,11 @@ export default function App() {
           <div className="game-over-overlay">
             <div className="game-over-card">
               <h3>{seconds >= 300 ? 'Time is up!' : 'No moves left'}</h3>
-              <p className="game-over-copy">Your final score is <strong>{score}</strong> and you reached level <strong>{level}</strong>.</p>
+              <div className="game-over-copy">
+                <p>Your score: <strong>{score}</strong></p>
+                <p>Best score: <strong>{bestScore}</strong></p>
+                <p>You reached level <strong>{level}</strong>.</p>
+              </div>
               <div className="game-over-actions">
                 <button className="action-button" onClick={() => resetGame(difficulty)}>Play Again</button>
                 <button className="action-button secondary" onClick={() => setShowControls(true)}>View Controls</button>

@@ -365,6 +365,8 @@ button {
   height: 56px;
   user-select: none;
   cursor: grab;
+  touch-action: none;
+  -webkit-user-drag: none;
 }
 
 .queue-item .tile:active {
