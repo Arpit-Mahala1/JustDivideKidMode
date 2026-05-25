@@ -102,6 +102,8 @@ export default function App() {
   const [dragState, setDragState] = useState({ active: false, value: null, x: 0, y: 0, offsetX: 0, offsetY: 0 });
   const [history, setHistory] = useState([]);
   const [showHints, setShowHints] = useState(false);
+  const [showControls, setShowControls] = useState(false);
+  const [paused, setPaused] = useState(false);
 
   const keepRef = useRef(null);
   const trashRef = useRef(null);
@@ -111,7 +113,7 @@ export default function App() {
   const trashCount = DIFFICULTY[difficulty].trash + level - 1 - trashUsed;
 
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || paused) return;
     const interval = setInterval(() => {
       setSeconds((seconds) => {
         const next = seconds + 1;
@@ -122,7 +124,7 @@ export default function App() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [gameOver]);
+  }, [gameOver, paused]);
 
   const checkGameOver = (nextGrid) => {
     if (nextGrid.some((value) => value === 0)) return false;
@@ -144,6 +146,7 @@ export default function App() {
     setTrashUsed(0);
     setGameOver(false);
     setSeconds(0);
+    setPaused(false);
     setHistory([]);
   };
 
@@ -236,6 +239,11 @@ export default function App() {
     });
   };
 
+  const togglePause = () => {
+    if (gameOver) return;
+    setPaused((current) => !current);
+  };
+
   useEffect(() => {
     if (!dragState.active) return undefined;
 
@@ -261,7 +269,7 @@ export default function App() {
     };
   }, [dragState.active, dropAt]);
 
-  // Keyboard shortcuts: Z=Undo, R=Restart, 1/2/3 difficulty, G toggle hints
+  // Keyboard shortcuts: Z=Undo, R=Restart, 1/2/3 difficulty, G toggle hints, P pause/resume
   useEffect(() => {
     const handleKey = (e) => {
       // ignore if typing in an input
@@ -271,6 +279,7 @@ export default function App() {
       if (key === 'z') undoAction();
       if (key === 'r') resetGame();
       if (key === 'g') setShowHints((s) => !s);
+      if (key === 'p') togglePause();
       if (['1', '2', '3'].includes(key)) {
         const level = Number(key);
         // apply immediately with the selected difficulty
@@ -294,6 +303,20 @@ export default function App() {
     return `tile value-${value} color-${colorIndex}`;
   };
 
+  const getHintIndices = (gridState, activeValue) => {
+    if (!activeValue) return [];
+    return gridState.reduce((indices, value, index) => {
+      if (value !== 0) return indices;
+      const neighbors = getNeighbors(index);
+      if (neighbors.some((neighbor) => canMerge(activeValue, gridState[neighbor]))) {
+        indices.push(index);
+      }
+      return indices;
+    }, []);
+  };
+
+  const hintIndices = showHints ? getHintIndices(grid, queue[0]) : [];
+
   return (
     <div className="app-shell">
       <div className="app-container">
@@ -306,6 +329,13 @@ export default function App() {
           <div className="timer-badge">
             <span>SESSION TIMER</span>
             <strong>{formatTime(seconds)}</strong>
+            {paused && <small className="pause-label">Paused</small>}
+          </div>
+          <div className="header-actions">
+            <button className={`icon-button${paused ? ' active' : ''}`} onClick={togglePause}>
+              {paused ? '▶ Resume' : '|| Pause'}
+            </button>
+            <button className="icon-button secondary" onClick={() => setShowControls(true)} aria-label="Show controls">?</button>
           </div>
         </header>
 
@@ -331,7 +361,7 @@ export default function App() {
                   <div
                     ref={(element) => setGridRef(element, index)}
                     key={index}
-                    className={`grid-cell ${value ? 'filled' : 'empty'}`}
+                    className={`grid-cell ${value ? 'filled' : 'empty'}${hintIndices.includes(index) ? ' hint' : ''}`}
                   >
                     {value ? <div className={tileClass(value)}>{value}</div> : <div className="cell-dot" />}
                   </div>
@@ -377,17 +407,18 @@ export default function App() {
           </div>
         )}
 
-        {showHints && (
+        {showControls && (
           <div className="hints-overlay">
             <div className="hints-card">
               <h3>Keyboard Shortcuts</h3>
               <ul>
                 <li><strong>Z</strong> — Undo</li>
                 <li><strong>R</strong> — Restart</li>
+                <li><strong>P</strong> — Pause / Resume timer</li>
                 <li><strong>1</strong>, <strong>2</strong>, <strong>3</strong> — Difficulty (Easy / Medium / Hard)</li>
                 <li><strong>G</strong> — Toggle hints</li>
               </ul>
-              <button className="close-hints" onClick={() => setShowHints(false)}>Close</button>
+              <button className="close-hints" onClick={() => setShowControls(false)}>Close</button>
             </div>
           </div>
         )}
@@ -399,7 +430,7 @@ export default function App() {
               <p className="game-over-copy">Your final score is <strong>{score}</strong> and you reached level <strong>{level}</strong>.</p>
               <div className="game-over-actions">
                 <button className="action-button" onClick={() => resetGame(difficulty)}>Play Again</button>
-                <button className="action-button secondary" onClick={() => setShowHints(true)}>View Controls</button>
+                <button className="action-button secondary" onClick={() => setShowControls(true)}>View Controls</button>
               </div>
             </div>
           </div>
